@@ -1,0 +1,24 @@
+[project]
+name = "courses-rag"
+version = "0.1.0"
+description = "Local PDF questions, summaries, and conversations organized by topic"
+readme = "README.md"
+authors = [
+    { name = "Dzui1", email = "buithaiduy2006@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "chromadb>=1.5.9",
+    "fonttools>=4.65.0",
+    "pypdf>=6.18.0",
+    "requests>=2.34.2",
+    "sentence-transformers>=6.0.1",
+]
+
+[project.scripts]
+pdf-rag = "courses_rag:main"
+courses-rag = "courses_rag:main"
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
