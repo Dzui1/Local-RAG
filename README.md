@@ -1,300 +1,235 @@
-# PDF RAG: questions and conversations about your PDFs
+# Local RAG: Interactive QA and Summarization for Your PDFs
 
-A local command-line assistant for PDFs on any subject. Ask what a concept means,
-request a document summary, or continue a conversation with follow-up questions.
-Answers are prompted to cite PDF filenames and physical page numbers.
+> **Note:** Originally developed as **`course-rag`** to help students query lecture slides and course materials, this project has evolved into **`local-rag`** (or **`pdf-rag`**)—a fully adaptable, offline RAG system for analyzing any collection of local PDF documents.
 
-## Start with the two PDFs already in `data`
+A local, command-line Retrieval-Augmented Generation (RAG) assistant for querying and summarizing your PDFs. Ask conceptual questions, generate document summaries, or hold multi-turn conversations grounded directly in your files. Every answer is explicitly prompted to cite source filenames and page numbers.
 
-Run these commands from the project directory:
+---
 
-```bash
-uv sync
-# Start Ollama if it isn't already running (or open the Ollama app):
-ollama serve
-```
+## Table of Contents
 
-In another terminal:
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Interactive Chat](#interactive-chat)
+  - [Single-Shot CLI Commands](#single-shot-cli-commands)
+  - [Chat Commands Reference](#chat-commands-reference)
+- [Managing Topics and Folders](#managing-topics-and-folders)
+- [Configuration and Model Switching](#configuration-and-model-switching)
+- [Database Synchronization](#database-synchronization)
+- [Architecture Overview](#architecture-overview)
+- [Project Layout and Testing](#project-layout-and-testing)
 
-```bash
-uv run python query_engine.py
-```
+---
 
-Chat automatically indexes the selected topic. The first index downloads the
-`all-MiniLM-L6-v2` embedding model. Ollama uses the already-installed
-`openbmb/minicpm5-2b:latest` by default.
-On a new machine install it with:
+## Prerequisites
 
-```bash
-ollama pull openbmb/minicpm5-2b:latest
-```
+Before running the application, ensure you have installed:
 
-The answer model can be overridden with `--model` or `OLLAMA_MODEL`; no automatic
-model switching occurs. It is separate from the embedding model, so changing the
-answer model does not require rebuilding the vector database. See [Model
-switching and thinking](#model-switching-and-thinking) for examples.
+1. **[uv](https://astral.sh/uv)** (Fast Python package manager):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+2. **[Ollama](https://ollama.com/)** (Local LLM runner):
+   Download and install Ollama for your operating system.
 
-Try this conversation (enter filenames exactly, without surrounding quotes):
+---
+
+## Quick Start
+
+Get up and running in five steps:
+
+1. **Pull the default LLM model:**
+   ```bash
+   ollama pull openbmb/minicpm5-2b:latest
+   ```
+
+2. **Install project dependencies:**
+   ```bash
+   uv sync
+   ```
+   > **macOS Note:** If `uv sync` completes but running commands produces `ModuleNotFoundError: local_rag`, unhide the package path file:
+   > ```bash
+   > chflags nohidden .venv/lib/python*/site-packages/local_rag.pth
+   > ```
+
+3. **Start the Ollama service:**
+   Make sure the desktop application is running, or execute:
+   ```bash
+   ollama serve
+   ```
+
+4. **Launch the assistant:**
+   ```bash
+   uv run python query_engine.py
+   ```
+   *(On first startup, the app automatically downloads the `all-MiniLM-L6-v2` embedding model and indexes files in the `data/` directory.)*
+
+---
+
+## Usage
+
+### Interactive Chat
+
+Launch the interactive prompt and enter chat commands or plain-text questions:
 
 ```text
 /files
-/pdf How to study cities_LeGates.pdf
+/pdf document_a.pdf
 Summarize this PDF.
-What approaches does LeGates suggest for studying cities?
-Explain that more simply.
-/pdf What is urban about critical urban theory .pdf
-What does critical urban theory mean in this text?
+What are the primary concepts discussed in this file?
+Explain that in simpler terms.
+/pdf document_b.pdf
+What is the core argument in this document?
 /all
-/summary Summarize both PDFs and explain how their approaches differ.
+/summary Summarize both documents and compare their main findings.
 ```
 
-Or ask a single question:
+### Single-Shot CLI Commands
+
+Execute quick queries or generate summaries directly from your terminal:
 
 ```bash
-uv run pdf-rag ask "What does critical urban theory mean?" \
-  --pdf "What is urban about critical urban theory .pdf"
-uv run pdf-rag ask "Summarize both PDFs and compare their main ideas." --summary
+# Query a specific document
+uv run pdf-rag ask "What are the key takeaways?" --pdf "document_a.pdf"
+
+# Generate a combined summary across all active PDFs
+uv run pdf-rag ask "Compare the methodology across all files." --summary
 ```
 
-## Organize conversations by topic
+### Chat Commands Reference
 
-Every folder containing PDFs is a separate topic. The topic name is its path
-relative to `data`. PDFs directly inside `data` belong to the default topic `.`.
-Only PDFs directly in a given folder are included in that topic; nested folders
-have their own topics. Filenames ending in `.pdf` or `.PDF` are supported.
-Without `--topic`, the assistant opens `.` when present, otherwise the first
-available topic and prints its name.
+| Command | Description |
+| :--- | :--- |
+| `/topics` | List available document topics (folders). |
+| `/use <TOPIC>` | Index and switch to a topic; restores recent chat history. |
+| `/files` | List PDFs in the active topic. |
+| `/pdf <FILENAME>` | Target questions and summaries toward a specific PDF. |
+| `/all` | Target all PDFs in the active topic. |
+| `/summary [request]` | Perform full-text extraction and generate document summaries. |
+| `/index` | Refresh the active topic index after file changes and reset history. |
+| `/reset` | Clear conversation history for the current topic. |
+| `/help` | Display available commands. |
+| `/quit` | Exit the interactive session. |
+
+---
+
+## Managing Topics and Folders
+
+Organize your PDFs by placing them into subdirectories inside `data/`. Each folder acts as an isolated topic:
 
 ```text
 data/
-  How to study cities_LeGates.pdf              # topic: .
-  What is urban about critical urban theory .pdf
-  biology/                                   # topic: biology
-    cells.pdf
-  history/                                   # topic: history
-    reading.pdf
-  work/project-a/                            # topic: work/project-a
-    report.pdf
+├── document_a.pdf          # Topic: . (default root)
+├── document_b.pdf
+├── research/               # Topic: research
+│   └── paper_01.pdf
+├── finance/                # Topic: finance
+│   └── Q3_report.pdf
+└── project_x/sub_folder/   # Topic: project_x/sub_folder
+    └── specs.pdf
 ```
+
+### Topic CLI Commands
 
 ```bash
+# List all discovered topics
 uv run pdf-rag topics
+
+# Index all topic directories at once
 uv run pdf-rag index --all
-uv run pdf-rag chat --topic biology
+
+# Launch chat within a specific topic
+uv run pdf-rag chat --topic research
 ```
 
-Switch at any time inside chat:
+### Switching Topics in Chat
 
 ```text
 /topics
-/use history
-What are the main arguments?
-/use biology
-Explain the previous answer more simply.
+/use finance
+What were the quarterly revenue numbers?
+/use research
+Explain the algorithm described in paper_01.pdf.
 /use .
 ```
 
-Each topic has a separate index, recent conversation history, and PDF selection.
-Switching back restores that topic's conversation during the current session.
-History stays in memory (the last three exchanges); exiting starts a fresh
-conversation next time. Indexes persist on disk. Selecting a different PDF or
-using `/all` clears the current topic's history to avoid mixing document context.
-Topic switching is explicit so an unrelated question cannot silently switch sources.
+*Each topic maintains its own vector index, PDF selection, and recent conversation history (retained in memory for up to three exchanges).*
 
-### Chat commands
+---
 
-| Command | Action |
-| --- | --- |
-| `/topics` | List PDF folders |
-| `/use TOPIC` | Index and switch to a topic; resume its history |
-| `/files` | List PDFs in the active topic |
-| `/pdf FILENAME` | Focus questions and summaries on one PDF |
-| `/all` | Use all PDFs in the active topic |
-| `/summary [request]` | Read and summarize all text in the selected PDF(s) |
-| `/index` | Refresh the active topic after changing PDFs; clear its history |
-| `/reset` | Start a fresh conversation in the active topic |
-| `/help` | Show commands |
-| `/quit` | Exit |
+## Configuration and Model Switching
 
-## Adding, removing, and reorganizing PDFs
+### Changing the LLM Model
 
-The vector database in `chroma_db/` is a persisted index, not a live mirror of
-`data/`. There is no background file watcher. Synchronization happens when you
-start chat, run a one-shot `ask`, switch with `/use TOPIC`, or explicitly index.
-Chat startup and `ask` refresh only the selected topic; `/use` refreshes the
-destination topic.
-
-After changing PDFs during a conversation, run `/index` to refresh that topic
-and clear its history. After reorganizing several folders, run:
+You can use any local model installed via `ollama pull`. Specify models using CLI flags or environment variables:
 
 ```bash
-uv run python indexer.py --all
-```
+# Override model for an interactive session:
+uv run pdf-rag chat --model gemma4:e4b
 
-| Change in `data/` | What the next index does |
-| --- | --- |
-| Add a PDF | Extracts its text, creates embeddings, and adds them to that topic. |
-| Edit or replace a PDF under the same filename | Detects changed file contents using SHA-256; replaces that PDF's old chunks and embeddings. |
-| Leave a PDF unchanged | Skips it when its stored index is complete. |
-| Remove a PDF from a topic that still has other PDFs | Deletes the removed PDF's stored chunks and embeddings. |
-| Rename a PDF | Treats this as removing the old filename and adding the new one; embeds it again. |
-| Move a PDF between topics | Removes it from the old topic when that topic is refreshed and nonempty; indexes it in the destination topic. Refresh both, or use `--all`. |
-| Empty, delete, or rename an entire topic folder | The old topic becomes unavailable, but its collection remains on disk. A renamed folder is indexed as a new topic. |
+# Override model for a single query:
+uv run pdf-rag ask "Explain this term." --model gemma4:e4b
 
-**Current cleanup limitation:** `--all` discovers only folders that currently
-contain PDFs. It does not purge collections for empty, deleted, or renamed topic
-folders. If all PDFs are removed from `data`, indexing reports that no PDFs were
-found and leaves the existing database intact. These old collections cannot be
-queried through the assistant while their topics are absent, but still take space.
-
-Collections are identified by the absolute data-directory path plus the topic's
-relative folder path. Moving the entire project or changing `--data` to another
-location therefore creates separate collections, even for identical PDFs.
-For a clean rebuild after a major reorganization, stop the assistant, move
-`chroma_db/` aside as a backup, and run `uv run python indexer.py --all`.
-This regenerates the index from the current PDFs; it does not modify the PDFs.
-If you use `--db`, apply these steps to that database directory instead.
-
-During an already-open chat, all-PDF queries can still retrieve removed or
-outdated passages until the topic is refreshed. An external indexing command
-does not clear that running chat's history; use `/index` there or restart chat.
-`/use` preserves history, so use `/reset` after returning to a topic whose
-documents changed.
-
-Changing the answer model does not affect this synchronization: the vector
-database stores PDF embeddings, while Ollama is called later to write an answer.
-Changing the embedding model in `src/courses_rag/library.py` is different. It
-changes the vectors used for search, so move `chroma_db/` aside and rebuild with
-`uv run python indexer.py --all` after changing the embedding model.
-
-## How it works
-
-- `pypdf` and `fontTools` extract text page by page.
-- Overlapping text chunks are embedded with Sentence Transformers and stored in
-  Chroma, with a separate collection for each topic and data directory.
-- Questions retrieve up to six relevant chunks, filtered to the selected PDF if
-  applicable. Recent conversation helps retrieve evidence for follow-up questions.
-- Summary requests (`summarize`, `summary`, `overview`, or `/summary`) process
-  **every indexed chunk** in bounded sections, then summarize each PDF separately
-  before answering the request using all document summaries. Comparisons happen
-  only after every selected document has been summarized.
-  Long summaries take multiple local model calls and print progress.
-- Ollama generates answers using PDF evidence and citation instructions.
-- File hashes detect changed PDFs. Reindexing replaces changed files, removes
-  deleted files from nonempty topics, and skips unchanged complete indexes.
-  Empty/deleted topics are unavailable to query even if old index data remains.
-
-Summaries cover all extracted text, but generated answers and citations can still
-be wrong; verify important claims against the cited pages. Each answer also includes a source list generated directly
-from the records supplied to the model, even if the model omits inline citations.
-Image-only PDFs need OCR before indexing. Figures and images are not interpreted. Physical PDF page
-numbers may differ from printed page numbers. Initial setup downloads packages
-and model weights; PDF extraction, embeddings, and default Ollama requests run
-locally. Summaries need more time than ordinary questions.
-
-## Model switching and thinking
-
-The default answer model is set in
-[`src/courses_rag/assistant.py`](/Users/dzui_/Documents/Software/Coding/Courses-RAG/src/courses_rag/assistant.py:45):
-
-```python
-self.model = model or os.getenv(
-    "OLLAMA_MODEL", "openbmb/minicpm5-2b:latest")
-```
-
-The three ways to choose a model are, in order of precedence:
-
-```bash
-# One interactive session:
-uv run python query_engine.py --model gemma4:e4b
-
-# One question:
-uv run pdf-rag ask "What does this term mean?" --model gemma4:e4b
-
-# The process environment (no source edit):
+# Set model globally using an environment variable:
 OLLAMA_MODEL=gemma4:e4b uv run python query_engine.py
 ```
 
-Replace `gemma4:e4b` with the exact name shown by `ollama list`. The model is
-selected when the process starts, so restart the chat to switch models. The
-`--model` option takes precedence over `OLLAMA_MODEL`, which takes precedence
-over the default string in `assistant.py`. `--model` is available for `ask` and
-`chat`; it is not needed by `index` because indexing uses the embedding model.
-Switching between `openbmb/minicpm5-2b:latest` and `gemma4:e4b` does not require
-re-indexing the PDFs.
-
-Thinking is only partially wired at present. Ollama's chat request is made at
-[`assistant.py:53`](/Users/dzui_/Documents/Software/Coding/Courses-RAG/src/courses_rag/assistant.py:53)
-with `"think": False`, so the app currently asks every model for a final answer
-without thinking enabled. The app reads `message.content` and deliberately does
-not display or save `message.thinking`. There is no chat command or environment
-variable for changing this yet.
-
-MiniCPM's installed Ollama template does contain a thinking branch. A direct
-local API request with `think: true` returned separate `message.thinking` and
-`message.content` fields; this application currently discards the former. Gemma
-4 E2B/E4B also supports an explicit thinking toggle.
-
-For a manual experiment, change that one request field to `"think": True`:
-
-```python
-"model": self.model, "stream": False, "think": True,
-```
-
-This enables thinking for models whose Ollama template supports it, including
-the Gemma 4 E2B/E4B family. It still will not show the reasoning trace in this
-app because `message.thinking` is not printed; only the final answer is used.
-Thinking tokens also count against `num_predict` in the request, so a small
-output limit can end with an empty `message.content` before the final answer is
-generated. The app's current `num_predict` is 1200. See the [Ollama chat API](https://docs.ollama.com/api/chat)
-and [Ollama thinking guide](https://docs.ollama.com/capabilities/thinking) for the response fields and
-model support. Google documents Gemma 4 E2B/E4B thinking as an explicit on/off
-mode in its [Gemma thinking guide](https://ai.google.dev/gemma/docs/capabilities/thinking).
-
-## Configuration
+### Custom Directory Paths
 
 ```bash
-uv run pdf-rag chat --model YOUR_INSTALLED_OLLAMA_MODEL
-uv run pdf-rag chat --data /path/to/pdfs --db /path/to/index --topic biology
+uv run pdf-rag chat --data /path/to/custom_pdfs --db /path/to/custom_db --topic research
 ```
 
-`OLLAMA_MODEL` and `OLLAMA_URL` environment variables override the defaults.
-If Ollama reports a connection or model error, check `ollama list` and start the
-Ollama application. Credentials are not required for local inference.
+- `OLLAMA_MODEL`: Overrides default answer model string (`openbmb/minicpm5-2b:latest`).
+- `OLLAMA_URL`: Overrides target Ollama server address.
 
-If macOS reports `ModuleNotFoundError: courses_rag` after a successful `uv sync`,
-check whether its editable-install path file was marked hidden. Python skips
-hidden `.pth` files. Clear that flag and retry:
+---
 
-```bash
-chflags nohidden .venv/lib/python*/site-packages/courses_rag.pth
-```
+## Database Synchronization
 
-`python indexer.py [--topic TOPIC | --all]` and
-`python query_engine.py [--topic TOPIC]` remain available with the project
-dependencies installed. These wrappers import the source directly, so they also
-work if macOS hides the editable-install path file. `courses-rag` is an alias for `pdf-rag`.
-No source-code edits are needed to choose topics or ask questions.
+The persistent vector database resides in `chroma_db/`. Re-indexing happens automatically when starting a session, switching topics, or executing explicit indexing commands.
 
-## Project layout and checks
+### File Modification Rules
+
+| Event in `data/` | Re-indexing Behavior |
+| :--- | :--- |
+| **Add new PDF** | Extracts text, generates embeddings, adds to index. |
+| **Edit existing PDF** | Detects change via SHA-256 hash; replaces old embeddings. |
+| **Unchanged PDF** | Skipped automatically. |
+| **Delete PDF** | Removes associated chunks from topic index. |
+| **Rename PDF** | Treated as a deletion followed by addition; re-embeds text. |
+| **Move PDF between folders** | Removed from origin topic; indexed under target topic. |
+
+> **Performing a Clean Rebuild:** To completely rebuild your vector database, stop the application, delete or rename `chroma_db/`, and run `uv run python indexer.py --all`.
+
+---
+
+## Architecture Overview
+
+1. **Extraction:** Page-by-page text parsing via `pypdf` and `fontTools`.
+2. **Embedding & Storage:** Overlapping text chunks are embedded using Sentence Transformers (`all-MiniLM-L6-v2`) and stored in isolated Chroma collections per topic.
+3. **Retrieval:** Relevant chunks (up to 6 per query) are fetched based on semantic similarity.
+4. **Summarization Engine:** Reads and processes indexed chunks in bounded batches, generating document-level summaries before forming final answers.
+5. **Generation & Grounding:** Local LLM constructs answers using retrieved evidence, formatted with mandatory source citations.
+
+---
+
+## Project Layout and Testing
 
 ```text
-src/courses_rag/library.py    PDF discovery, extraction, indexing, retrieval
-src/courses_rag/assistant.py  Grounded answers, summaries, conversation history
-src/courses_rag/cli.py        Commands and interactive chat
-indexer.py                   Index command wrapper
-query_engine.py              Chat command wrapper
-tests/                      Offline regression tests
-chroma_db/                  Generated persistent index (gitignored)
-.tmp/                       Regenerable model/download caches (gitignored)
+src/local_rag/library.py     # PDF parsing, indexing, and retrieval pipeline
+src/local_rag/assistant.py   # RAG prompt engine, history, and generation logic
+src/local_rag/cli.py         # Terminal commands and interactive prompt UI
+indexer.py                   # CLI wrapper for indexing workflows
+query_engine.py              # CLI wrapper for query & chat workflows
+tests/                       # Automated offline test suite
+chroma_db/                   # Local persistent vector store (gitignored)
+.tmp/                        # Local cache directory (gitignored)
 ```
+
+Run unit and integration tests (requires no active Ollama server):
 
 ```bash
 uv run python -m unittest discover -s tests -v
 ```
-
-Tests use a deterministic stand-in embedder and mocked generation, with real
-Chroma storage, so they need no model downloads or running Ollama server.
-
-API references: [Ollama chat](https://docs.ollama.com/api/chat) and
-[Chroma metadata filtering](https://docs.trychroma.com/docs/querying-collections/metadata-filtering).
